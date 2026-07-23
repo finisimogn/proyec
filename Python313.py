@@ -451,7 +451,7 @@ with tab1:
         "parcial de Fourier con N armonicos. En las discontinuidades apareceran las "
         "oscilaciones del fenomeno de Gibbs."
     )
- st.caption(f"Definicion ingresada (sintaxis SymPy):  f({var_choice}) = {func_str}")
+    st.caption(f"Definicion ingresada (sintaxis SymPy):  f({var_choice}) = {func_str}")
 # --- TAB 2: PASO A PASO ---
 with tab2:
     st.header("Solucion de la Serie de Fourier")
