@@ -385,10 +385,8 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # --- TAB 1: GRAFICA ---
 with tab1:
      st.markdown("#### Funcion definida")
-    st.latex(
-        f"f({var_choice}) = {sp.latex(f_expr)}"
-        f"\\qquad {var_choice} \\in \\left[{sp.latex(a_sym)},\\; {sp.latex(b_sym)}\\right]"
-    )
+     latex_def = f"f({var_choice}) = {sp.latex(f_expr)} \\qquad {var_choice} \\in \\left[{sp.latex(a_sym)},\\; {sp.latex(b_sym)}\\right]"
+    st.latex(latex_def)
 
     fig = go.Figure()
     fig.add_trace(
