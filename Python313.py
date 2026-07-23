@@ -48,27 +48,25 @@ except Exception as e:
     st.stop()
 
 if a_val >= b_val:
-    st.error("El límite inferior (a) debe ser estrictamente menor que el límite superior (b).")
+    st.error("El límite inferior (a) debe ser strictly menor que el límite superior (b).")
     st.stop()
 
 
-# --- CÁLCULO NUMÉRICO OPTIMIZADO (CON CACHÉ) ---
+# --- CÁLCULO NUMÉRICO DE COEFICIENTES (SOLO RETORNA DATOS SERIALIZABLES) ---
 @st.cache_data(show_spinner=False)
-def calculate_fourier_numeric(func_input, a_v, b_v, n_terms):
+def compute_fourier_coefficients(clean_func_str, a_v, b_v, n_terms):
     t = sp.Symbol("t")
-    clean_func = str(func_input).replace("π", "pi")
-    
     try:
-        f_expr = sp.sympify(clean_func)
+        f_expr = sp.sympify(clean_func_str)
         f_num = sp.lambdify(t, f_expr, modules=["numpy", {"sign": np.sign}])
     except Exception as e:
-        return None, None, None, None, None, None, None, str(e)
+        return None, None, None, None, None, None, str(e)
 
     L = (b_v - a_v) / 2.0
     T = b_v - a_v
     w0 = (2 * np.pi) / T
 
-    def safe_f(val):
+    def safe_eval(val):
         try:
             res = f_num(val)
             return float(res) if np.isscalar(res) else float(res[0])
@@ -76,7 +74,7 @@ def calculate_fourier_numeric(func_input, a_v, b_v, n_terms):
             return 0.0
 
     # Coeficiente a0
-    a0_int, _ = integrate.quad(safe_f, a_v, b_v, limit=100)
+    a0_int, _ = integrate.quad(safe_eval, a_v, b_v, limit=100)
     a0 = (1.0 / L) * a0_int
 
     an_list = []
@@ -84,10 +82,10 @@ def calculate_fourier_numeric(func_input, a_v, b_v, n_terms):
 
     for n in range(1, n_terms + 1):
         def integrand_an(val):
-            return safe_f(val) * np.cos(n * w0 * (val - a_v - L))
+            return safe_eval(val) * np.cos(n * w0 * (val - a_v - L))
 
         def integrand_bn(val):
-            return safe_f(val) * np.sin(n * w0 * (val - a_v - L))
+            return safe_eval(val) * np.sin(n * w0 * (val - a_v - L))
 
         an_val, _ = integrate.quad(integrand_an, a_v, b_v, limit=100)
         bn_val, _ = integrate.quad(integrand_bn, a_v, b_v, limit=100)
@@ -95,17 +93,38 @@ def calculate_fourier_numeric(func_input, a_v, b_v, n_terms):
         an_list.append((1.0 / L) * an_val)
         bn_list.append((1.0 / L) * bn_val)
 
-    return f_expr, safe_f, a0, an_list, bn_list, L, T, w0, None
+    return a0, an_list, bn_list, L, T, w0, None
 
 
-f_expr, safe_f, a0_calc, an_calc, bn_calc, L, T, w0, err_msg = calculate_fourier_numeric(func_str, a_val, b_val, N_harmonics)
+# Reconstrucción fuera del caché
+clean_func_input = str(func_str).replace("π", "pi")
 
-if err_msg:
-    st.error(f"Error al evaluar la función: {err_msg}")
+try:
+    t_sym = sp.Symbol("t")
+    f_expr = sp.sympify(clean_func_input)
+    f_num_fast = sp.lambdify(t_sym, f_expr, modules=["numpy", {"sign": np.sign}])
+    
+    def safe_f(val):
+        try:
+            res = f_num_fast(val)
+            return float(res) if np.isscalar(res) else float(res[0])
+        except Exception:
+            return 0.0
+
+except Exception as err:
+    st.error(f"Error en la expresión matemática f(t): {err}")
     st.stop()
 
-if safe_f is not None:
-    # Expansor lateral para modificación manual de coeficientes
+a0_calc, an_calc, bn_calc, L, T, w0, err_msg = compute_fourier_coefficients(
+    clean_func_input, a_val, b_val, N_harmonics
+)
+
+if err_msg:
+    st.error(f"Error al calcular los coeficientes de Fourier: {err_msg}")
+    st.stop()
+
+if a0_calc is not None:
+    # Expansor lateral para modificación manual
     with st.sidebar.expander("Modificación Manual de Coeficientes"):
         modify_coeffs = st.checkbox("Activar modificación manual")
         a0 = a0_calc
@@ -129,7 +148,7 @@ if safe_f is not None:
         "Desarrollo Matemático Paso a Paso"
     ])
 
-    # Generación de vectores para graficar
+    # Vectorización para gráficos
     t_vals = np.linspace(a_val - T, b_val + T, 1000)
 
     def periodic_f(t_array):
@@ -146,11 +165,10 @@ if safe_f is not None:
     for n in range(1, N_harmonics + 1):
         fourier_series += an_list[n - 1] * np.cos(n * w0 * (t_vals - a_val - L)) + bn_list[n - 1] * np.sin(n * w0 * (t_vals - a_val - L))
 
-    # --- GENERACIÓN DINÁMICA DE ETIQUETAS PI ---
+    # Generación dinámica de etiquetas Pi sin sobrecarga
     def get_pi_ticks_dynamic(min_v, max_v):
         total_range = max_v - min_v
         
-        # Ajustar el paso según el rango para no saturar
         if total_range <= 4 * np.pi:
             step = np.pi / 2
         elif total_range <= 12 * np.pi:
@@ -171,7 +189,6 @@ if safe_f is not None:
                 continue
             tick_vals.append(val)
             
-            # Formateo simplificado
             if abs(val) < 1e-5:
                 tick_text.append("0")
             else:
