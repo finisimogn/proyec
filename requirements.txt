@@ -2,6 +2,5 @@ streamlit
 numpy
 sympy
 scipy
-numba
 plotly
 pandas
