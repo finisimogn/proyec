@@ -117,12 +117,12 @@ var_choice = st.sidebar.radio(
     "Variable independiente:", ["x", "t"], horizontal=True, key="var_choice"
 )
 
+FUNC_HELP = "Sintaxis SymPy. Ej: x, x**2, sin(x), pi - x, Abs(x). Para tramos usa Piecewise((expr1, cond1), (expr2, cond2))."
+
 func_str = st.sidebar.text_input(
     f"Funcion f({var_choice}):",
     key="func_str",
-    help="Sintaxis SymPy. Ej: x, x**2, sin(x), pi - x, Abs(x). "
-    "Para tramos usa Piecewise((expr1, cond1), (expr2, cond2)). "
-    "Ejemplo rectificador: Piecewise((10*sin(120*pi*t), t < 1/120), (0, True)).",,
+    help=FUNC_HELP,
 )
 
 c1, c2 = st.sidebar.columns(2)
