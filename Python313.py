@@ -68,25 +68,75 @@ def integral_pretty(integrand, var, lo, hi):
 # ----------------------------------------------------------------------------
 st.sidebar.header("1. Definicion de la funcion")
 
-var_choice = st.sidebar.radio("Variable independiente:", ["x", "t"], horizontal=True)
+ #--- Ejemplos precargados (se llenan con un clic) ---
+EXAMPLES = {
+    "Personalizado": None,
+    "f(x) = x  en [-pi, pi]": {"var": "x", "f": "x", "a": "-pi", "b": "pi"},
+    "f(x) = x^2  en [-pi, pi]": {"var": "x", "f": "x**2", "a": "-pi", "b": "pi"},
+    "Onda cuadrada impar  en [-pi, pi]": {
+        "var": "x",
+        "f": "Piecewise((-1, x < 0), (1, True))",
+        "a": "-pi",
+        "b": "pi",
+    },
+    "Rectificador media onda (10 V, 60 Hz)": {
+        "var": "t",
+        "f": "Piecewise((10*sin(120*pi*t), t < 1/120), (0, True))",
+        "a": "0",
+        "b": "1/60",
+    },
+    "Rectificador onda completa (10 V, 60 Hz)": {
+        "var": "t",
+        "f": "10*Abs(sin(120*pi*t))",
+        "a": "0",
+        "b": "1/120",
+    },
+}
+
+# Valores iniciales en session_state (antes de crear los widgets).
+st.session_state.setdefault("var_choice", "x")
+st.session_state.setdefault("func_str", "x")
+st.session_state.setdefault("a_str", "-pi")
+st.session_state.setdefault("b_str", "pi")
+
+
+def apply_example():
+    ex = EXAMPLES.get(st.session_state["ejemplo"])
+    if ex:
+        st.session_state["var_choice"] = ex["var"]
+        st.session_state["func_str"] = ex["f"]
+        st.session_state["a_str"] = ex["a"]
+        st.session_state["b_str"] = ex["b"]
+
+
+st.sidebar.selectbox(
+    "Ejemplos:", list(EXAMPLES.keys()), key="ejemplo", on_change=apply_example
+)
+
+var_choice = st.sidebar.radio(
+    "Variable independiente:", ["x", "t"], horizontal=True, key="var_choice"
+)
 
 func_str = st.sidebar.text_input(
     f"Funcion f({var_choice}):",
-    value=f"{var_choice}",
+    key="func_str",
     help="Sintaxis SymPy. Ej: x, x**2, sin(x), pi - x, Abs(x). "
-    "Para tramos usa Piecewise((expr1, cond1), (expr2, cond2)).",
+    "Para tramos usa Piecewise((expr1, cond1), (expr2, cond2)). "
+    "Ejemplo rectificador: Piecewise((10*sin(120*pi*t), t < 1/120), (0, True)).",,
 )
 
 c1, c2 = st.sidebar.columns(2)
 with c1:
-    a_str = st.sidebar.text_input("Limite inferior a:", value="-pi")
+     a_str = st.sidebar.text_input("Limite inferior a:", key="a_str")
 with c2:
-    b_str = st.sidebar.text_input("Limite superior b:", value="pi")
+    b_str = st.sidebar.text_input("Limite superior b:", key="b_str")
 
 axis_format = st.sidebar.radio(
     "Formato del eje horizontal:",
-    ["Multiplos de pi", "Decimales"],
+    ["Automatico", "Multiplos de pi", "Decimales"],
     index=0,
+    help="Automatico usa multiplos de pi solo si el periodo es multiplo de pi; "
+    "en senales temporales (p. ej. T = 1/60) usa decimales.",
 )
 
 st.sidebar.header("2. Parametros de la serie")
@@ -334,7 +384,11 @@ tab1, tab2, tab3, tab4 = st.tabs(
 
 # --- TAB 1: GRAFICA ---
 with tab1:
-    st.subheader(f"f({var_choice}) = {func_str}   en   [{sp.latex(a_sym)}, {sp.latex(b_sym)}]")
+     st.markdown("#### Funcion definida")
+    st.latex(
+        f"f({var_choice}) = {sp.latex(f_expr)}"
+        f"\\qquad {var_choice} \\in \\left[{sp.latex(a_sym)},\\; {sp.latex(b_sym)}\\right]"
+    )
 
     fig = go.Figure()
     fig.add_trace(
@@ -356,8 +410,20 @@ with tab1:
         )
     )
 
-    xaxis = dict(title=f"{var_choice}", zeroline=True)
+    # Decidir si el eje usa multiplos de pi.
     if axis_format == "Multiplos de pi":
+         use_pi_axis = True
+    elif axis_format == "Decimales":
+        use_pi_axis = False
+    else:  # Automatico: usar pi solo si el periodo es multiplo racional de pi.
+        try:
+            ratio = sp.nsimplify(T_sym / sp.pi)
+            use_pi_axis = ratio.is_rational is True
+        except Exception:
+            use_pi_axis = False
+
+    xaxis = dict(title=f"{var_choice}", zeroline=True)
+    if use_pi_axis:
         kmin = int(np.floor(x_min / np.pi))
         kmax = int(np.ceil(x_max / np.pi))
         tickvals = [k * np.pi for k in range(kmin, kmax + 1)]
@@ -387,7 +453,7 @@ with tab1:
         "parcial de Fourier con N armonicos. En las discontinuidades apareceran las "
         "oscilaciones del fenomeno de Gibbs."
     )
-
+ st.caption(f"Definicion ingresada (sintaxis SymPy):  f({var_choice}) = {func_str}")
 # --- TAB 2: PASO A PASO ---
 with tab2:
     st.header("Solucion de la Serie de Fourier")
