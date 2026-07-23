@@ -2,16 +2,14 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import scipy.integrate as integrate
-import scipy.signal as signal
 import streamlit as st
 import sympy as sp
-from numba import jit
 
 # Configuración de la página
-st.set_page_config(page_title="Calculadora de Fourier Ultra Optimizada", layout="wide")
+st.set_page_config(page_title="Calculadora de Fourier", layout="wide")
 
 st.title("⚡ Calculadora de Serie de Fourier High-Performance")
-st.markdown("Potenciada con **Numba (JIT C-Compiler)**, **SciPy**, **SymPy** y **Plotly** para $N > 1000$ armónicos.")
+st.markdown("Potenciada con **SciPy**, **NumPy**, **SymPy** y **Plotly** para $N > 1000$ armónicos.")
 
 # --- PANEL LATERAL ---
 st.sidebar.header("1. Configuración de la Función")
@@ -62,24 +60,7 @@ T = b_val - a_val
 L = T / 2.0
 w0 = (2.0 * np.pi) / T
 
-# --- KERNEL NUMBA (C-SPEED RECONSTRUCTION) ---
-@jit(nopython=True, fastmath=True)
-def numba_reconstruct_fourier(x_vals, a0, an_arr, bn_arr, w0_val):
-    """Suma de series acelerada a código de máquina con Numba"""
-    N = len(an_arr)
-    num_pts = len(x_vals)
-    y_out = np.full(num_pts, a0 / 2.0)
-    
-    for i in range(num_pts):
-        x = x_vals[i]
-        sum_terms = 0.0
-        for n in range(1, N + 1):
-            angle = n * w0_val * x
-            sum_terms += an_arr[n - 1] * np.cos(angle) + bn_arr[n - 1] * np.sin(angle)
-        y_out[i] += sum_terms
-    return y_out
-
-# --- CÁLCULO CIENTÍFICO MULTI-LIBRERÍA ---
+# --- CÁLCULO CIENTÍFICO VECTORIZADO ---
 @st.cache_data(show_spinner=False)
 def compute_fourier_engine(clean_expr_str, var_name, a_v, b_v, n_terms):
     v = sp.Symbol(var_name)
@@ -98,7 +79,7 @@ def compute_fourier_engine(clean_expr_str, var_name, a_v, b_v, n_terms):
     except Exception:
         a0_sym, an_sym, bn_sym = None, None, None
 
-    # 3. Integración Vectorial Adaptativa (SciPy)
+    # 3. Muestreo Vectorial en NumPy
     f_num = sp.lambdify(v, f, modules=["numpy", {"sign": np.sign}])
     
     def safe_f(val):
@@ -114,21 +95,18 @@ def compute_fourier_engine(clean_expr_str, var_name, a_v, b_v, n_terms):
 
     # Coeficientes an y bn vectorizados con NumPy
     n_vec = np.arange(1, n_terms + 1)
-    
+    x_samp = np.linspace(a_v, b_v, 5000)
+    y_samp = safe_f(x_samp)
+
     if is_odd:
         an_vals = np.zeros(n_terms)
     else:
-        # Integración usando trapezoides vectorizados de NumPy para alta velocidad en N grande
-        x_samp = np.linspace(a_v, b_v, 5000)
-        y_samp = safe_f(x_samp)
         cos_mat = np.cos(n_vec.reshape(-1, 1) * w0 * x_samp)
         an_vals = (2.0 / T) * np.trapezoid(y_samp * cos_mat, x_samp, axis=1)
 
     if is_even:
         bn_vals = np.zeros(n_terms)
     else:
-        x_samp = np.linspace(a_v, b_v, 5000)
-        y_samp = safe_f(x_samp)
         sin_mat = np.sin(n_vec.reshape(-1, 1) * w0 * x_samp)
         bn_vals = (2.0 / T) * np.trapezoid(y_samp * sin_mat, x_samp, axis=1)
 
@@ -138,21 +116,27 @@ a0_calc, an_calc, bn_calc, is_even, is_odd, a0_sym, an_sym, bn_sym = compute_fou
     str(f_expr), var_choice, a_val, b_val, N_harmonics
 )
 
-# Reconstrucción ultra rápida mediante Numba C-kernel
+# Reconstrucción Vectorial Ultra Rápida con NumPy (Broadcasting 2D)
 x_plot = np.linspace(a_val, b_val, 2000)
 f_num_plot = sp.lambdify(v_sym, f_expr, modules=["numpy", {"sign": np.sign}])
 y_orig = f_num_plot(x_plot)
 if np.isscalar(y_orig):
     y_orig = np.full_like(x_plot, y_orig)
 
-fourier_series = numba_reconstruct_fourier(x_plot, a0_calc, an_calc, bn_calc, w0)
+n_mat = np.arange(1, N_harmonics + 1).reshape(-1, 1)
+cos_terms = np.cos(n_mat * w0 * x_plot)
+sin_terms = np.sin(n_mat * w0 * x_plot)
+
+fourier_series = (a0_calc / 2.0) + np.sum(
+    an_calc.reshape(-1, 1) * cos_terms + bn_calc.reshape(-1, 1) * sin_terms, axis=0
+)
 
 # --- VISUALIZACIÓN INTERACTIVA ---
 tab1, tab2, tab3, tab4 = st.tabs([
     " Gráfica Principal", 
     " Desarrollo Analítico Paso a Paso", 
-    " Tabla de Coeficientes (Pandas)", 
-    " Espectro de Potencia (SciPy)"
+    " Tabla de Coeficientes", 
+    " Espectro de Potencia"
 ])
 
 # --- TAB 1: GRÁFICA ---
