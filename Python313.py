@@ -246,8 +246,15 @@ def fourier_engine(func_clean, var_name, a_txt, b_txt, N):
             if val is None:
                 # Integracion numerica directa como respaldo.
                 basis = np.cos(k * w0_n * x_s) if kind == "cos" else np.sin(k * w0_n * x_s)
-                trapz = getattr(np, "trapezoid", np.trapz)
-                val = (2.0 / T_n) * trapz(y_s * basis, x_s)
+                trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz", None)
+                if trapz is None:
+                    # Regla del trapecio manual como ultimo respaldo.
+                    integrand = y_s * basis
+                    val = (2.0 / T_n) * float(
+                        np.sum((integrand[:-1] + integrand[1:]) / 2.0 * np.diff(x_s))
+                    )
+                else:
+                    val = (2.0 / T_n) * trapz(y_s * basis, x_s)
             vals[k - 1] = val
         return vals
 
