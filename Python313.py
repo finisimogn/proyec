@@ -9,24 +9,34 @@ st.set_page_config(page_title="Calculadora de Fourier", layout="wide")
 st.title("Calculadora de Fourier")
 st.markdown(
     """
-Esta aplicación permite calcular, analizar y modificar la **Serie de Fourier** de una función periódica en el dominio del tiempo $t$.
+Esta aplicación permite calcular, analizar y modificar la **Serie de Fourier** de una función periódica.
 """
 )
 
 # --- PANEL LATERAL: ENTRADA DE DATOS ---
 st.sidebar.header("1. Configuración de la Función")
 
+# Selector de Variable
+var_choice = st.sidebar.radio("Variable independiente:", ["t", "x"], horizontal=True)
+
 func_str = st.sidebar.text_input(
-    "Función f(t):",
-    value="t",
-    help="Usa sintaxis matemática de Python/SymPy. Ejemplos: t, t**2, sin(t), cos(t), pi, pi*t, exp(-t)",
+    f"Función f({var_choice}):",
+    value=f"{var_choice}",
+    help=f"Usa sintaxis matemática de Python/SymPy. Ejemplos: {var_choice}, {var_choice}**2, sin({var_choice}), cos({var_choice}), pi, pi*{var_choice}, exp(-{var_choice})",
 )
 
 col1, col2 = st.sidebar.columns(2)
 with col1:
-    a_str = st.sidebar.text_input("Límite inferior (a):", value="-pi")
+    a_str = st.sidebar.text_input("Límite inferior (a):", value="-10")
 with col2:
-    b_str = st.sidebar.text_input("Límite superior (b):", value="pi")
+    b_str = st.sidebar.text_input("Límite superior (b):", value="10")
+
+# Selector de Formato del Eje Horizontal
+axis_format = st.sidebar.radio(
+    f"Formato de valores en eje {var_choice}:",
+    ["Decimales Directos (ej. -10, 0, 10)", "Múltiplos de Pi (ej. -3π, 0, 3π)"],
+    index=0
+)
 
 st.sidebar.header("2. Parámetros de Fourier")
 N_harmonics = st.sidebar.slider(
@@ -48,17 +58,17 @@ except Exception as e:
     st.stop()
 
 if a_val >= b_val:
-    st.error("El límite inferior (a) debe ser strictly menor que el límite superior (b).")
+    st.error("El límite inferior (a) debe ser estrictamente menor que el límite superior (b).")
     st.stop()
 
 
-# --- CÁLCULO NUMÉRICO DE COEFICIENTES (SOLO RETORNA DATOS SERIALIZABLES) ---
+# --- CÁLCULO NUMÉRICO DE COEFICIENTES ---
 @st.cache_data(show_spinner=False)
-def compute_fourier_coefficients(clean_func_str, a_v, b_v, n_terms):
-    t = sp.Symbol("t")
+def compute_fourier_coefficients(clean_func_str, var_name, a_v, b_v, n_terms):
+    v_sym = sp.Symbol(var_name)
     try:
         f_expr = sp.sympify(clean_func_str)
-        f_num = sp.lambdify(t, f_expr, modules=["numpy", {"sign": np.sign}])
+        f_num = sp.lambdify(v_sym, f_expr, modules=["numpy", {"sign": np.sign}])
     except Exception as e:
         return None, None, None, None, None, None, str(e)
 
@@ -96,13 +106,12 @@ def compute_fourier_coefficients(clean_func_str, a_v, b_v, n_terms):
     return a0, an_list, bn_list, L, T, w0, None
 
 
-# Reconstrucción fuera del caché
 clean_func_input = str(func_str).replace("π", "pi")
 
 try:
-    t_sym = sp.Symbol("t")
+    v_sym = sp.Symbol(var_choice)
     f_expr = sp.sympify(clean_func_input)
-    f_num_fast = sp.lambdify(t_sym, f_expr, modules=["numpy", {"sign": np.sign}])
+    f_num_fast = sp.lambdify(v_sym, f_expr, modules=["numpy", {"sign": np.sign}])
     
     def safe_f(val):
         try:
@@ -112,11 +121,11 @@ try:
             return 0.0
 
 except Exception as err:
-    st.error(f"Error en la expresión matemática f(t): {err}")
+    st.error(f"Error en la expresión matemática f({var_choice}): {err}")
     st.stop()
 
 a0_calc, an_calc, bn_calc, L, T, w0, err_msg = compute_fourier_coefficients(
-    clean_func_input, a_val, b_val, N_harmonics
+    clean_func_input, var_choice, a_val, b_val, N_harmonics
 )
 
 if err_msg:
@@ -149,26 +158,25 @@ if a0_calc is not None:
     ])
 
     # Vectorización para gráficos
-    t_vals = np.linspace(a_val - T, b_val + T, 1000)
+    domain_vals = np.linspace(a_val - T, b_val + T, 1000)
 
-    def periodic_f(t_array):
-        y_out = np.zeros_like(t_array)
-        for idx, tv in enumerate(t_array):
+    def periodic_f(array_vals):
+        y_out = np.zeros_like(array_vals)
+        for idx, tv in enumerate(array_vals):
             tv_shift = a_val + ((tv - a_val) % T)
             y_out[idx] = safe_f(tv_shift)
         return y_out
 
-    y_original_periodic = periodic_f(t_vals)
+    y_original_periodic = periodic_f(domain_vals)
 
     # Reconstrucción de la Serie de Fourier
-    fourier_series = np.full_like(t_vals, a0 / 2.0)
+    fourier_series = np.full_like(domain_vals, a0 / 2.0)
     for n in range(1, N_harmonics + 1):
-        fourier_series += an_list[n - 1] * np.cos(n * w0 * (t_vals - a_val - L)) + bn_list[n - 1] * np.sin(n * w0 * (t_vals - a_val - L))
+        fourier_series += an_list[n - 1] * np.cos(n * w0 * (domain_vals - a_val - L)) + bn_list[n - 1] * np.sin(n * w0 * (domain_vals - a_val - L))
 
-    # Generación dinámica de etiquetas Pi sin sobrecarga
+    # --- CONFIGURACIÓN DINÁMICA DEL EJE HORIZONTAL ---
     def get_pi_ticks_dynamic(min_v, max_v):
         total_range = max_v - min_v
-        
         if total_range <= 4 * np.pi:
             step = np.pi / 2
         elif total_range <= 12 * np.pi:
@@ -208,23 +216,21 @@ if a0_calc is not None:
                 
         return tick_vals, tick_text
 
-    x_ticks, x_labels = get_pi_ticks_dynamic(a_val - T, b_val + T)
-
     # --- PESTAÑA 1: COMPARACIÓN ---
     with tab1:
-        st.subheader("Observar y Comparar: Señal Original f(t) vs. Serie de Fourier")
+        st.subheader(f"Observar y Comparar: Señal Original f({var_choice}) vs. Serie de Fourier")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=t_vals, y=y_original_periodic, mode="lines", name="Señal Periódica f(t)", line=dict(color="blue", width=2)))
-        fig.add_trace(go.Scatter(x=t_vals, y=fourier_series, mode="lines", name=f"Aproximación (N={N_harmonics})", line=dict(color="red", width=2, dash="dash")))
+        fig.add_trace(go.Scatter(x=domain_vals, y=y_original_periodic, mode="lines", name=f"Señal Periódica f({var_choice})", line=dict(color="blue", width=2)))
+        fig.add_trace(go.Scatter(x=domain_vals, y=fourier_series, mode="lines", name=f"Aproximación (N={N_harmonics})", line=dict(color="red", width=2, dash="dash")))
+
+        xaxis_config = dict(title=f"Variable ({var_choice})")
+        if "Múltiplos de Pi" in axis_format:
+            x_ticks, x_labels = get_pi_ticks_dynamic(a_val - T, b_val + T)
+            xaxis_config.update(dict(tickmode="array", tickvals=x_ticks, ticktext=x_labels))
 
         fig.update_layout(
-            xaxis_title="Tiempo (t)",
-            yaxis_title="Amplitud f(t)",
-            xaxis=dict(
-                tickmode="array",
-                tickvals=x_ticks,
-                ticktext=x_labels
-            ),
+            xaxis=xaxis_config,
+            yaxis_title=f"Amplitud f({var_choice})",
             margin=dict(l=20, r=20, t=30, b=20),
             template="plotly_white",
             hovermode="x unified"
@@ -275,12 +281,12 @@ if a0_calc is not None:
     with tab3:
         st.subheader("Explicación y Cálculo del Error de Aproximación")
         
-        t_fund = np.linspace(a_val, b_val, 1000)
-        y_fund_orig = np.vectorize(safe_f)(t_fund)
+        fund_domain = np.linspace(a_val, b_val, 1000)
+        y_fund_orig = np.vectorize(safe_f)(fund_domain)
         
-        y_fund_fourier = np.full_like(t_fund, a0 / 2.0)
+        y_fund_fourier = np.full_like(fund_domain, a0 / 2.0)
         for n in range(1, N_harmonics + 1):
-            y_fund_fourier += an_list[n - 1] * np.cos(n * w0 * (t_fund - a_val - L)) + bn_list[n - 1] * np.sin(n * w0 * (t_fund - a_val - L))
+            y_fund_fourier += an_list[n - 1] * np.cos(n * w0 * (fund_domain - a_val - L)) + bn_list[n - 1] * np.sin(n * w0 * (fund_domain - a_val - L))
 
         mse = np.mean((y_fund_orig - y_fund_fourier) ** 2)
         norm_orig = np.mean(y_fund_orig ** 2)
@@ -289,20 +295,23 @@ if a0_calc is not None:
         col_e1, col_e2 = st.columns(2)
         with col_e1:
             st.metric("Error Cuadrático Medio (MSE)", f"{mse:.6f}")
-            st.markdown("Calcula el promedio de las diferencias al cuadrado entre $f(t)$ y la Serie de Fourier.")
+            st.markdown(f"Calcula el promedio de las diferencias al cuadrado entre $f({var_choice})$ y la Serie de Fourier.")
         with col_e2:
             st.metric("Porcentaje de Error Relativo (L²)", f"{rel_error:.4f} %")
             st.markdown("Compara la energía del error con la energía total de la señal original.")
 
         st.subheader("Gráfica del Error Absoluto Punto a Punto")
         fig_err = go.Figure()
-        fig_err.add_trace(go.Scatter(x=t_fund, y=np.abs(y_fund_orig - y_fund_fourier), mode="lines", name="|Error|", line=dict(color="orange")))
+        fig_err.add_trace(go.Scatter(x=fund_domain, y=np.abs(y_fund_orig - y_fund_fourier), mode="lines", name="|Error|", line=dict(color="orange")))
         
-        x_ticks_f, x_labels_f = get_pi_ticks_dynamic(a_val, b_val)
+        xaxis_err_config = dict(title=f"Variable ({var_choice})")
+        if "Múltiplos de Pi" in axis_format:
+            x_ticks_f, x_labels_f = get_pi_ticks_dynamic(a_val, b_val)
+            xaxis_err_config.update(dict(tickmode="array", tickvals=x_ticks_f, ticktext=x_labels_f))
+
         fig_err.update_layout(
-            xaxis_title="Tiempo (t)",
-            yaxis_title="Diferencia Absoluta |f(t) - S_N(t)|",
-            xaxis=dict(tickmode="array", tickvals=x_ticks_f, ticktext=x_labels_f),
+            xaxis=xaxis_err_config,
+            yaxis_title=f"Diferencia Absoluta |f({var_choice}) - S_N({var_choice})|",
             template="plotly_white",
             margin=dict(l=20, r=20, t=30, b=20)
         )
@@ -312,11 +321,11 @@ if a0_calc is not None:
     with tab4:
         st.subheader("Guía Explicativa de Parámetros y Conceptos")
         st.markdown(
-            """
-- **$t$ (Tiempo):** Variable independiente en el dominio del tiempo.
-- **$f(t)$ (Función / Señal):** Onda que se analiza.
+            f"""
+- **${var_choice}$ (Variable):** Variable independiente elegida ({var_choice}).
+- **$f({var_choice})$ (Función / Señal):** Onda que se analiza.
 - **$T = b - a$ (Periodo):** Duración de un ciclo completo de la onda.
-- **$\omega_0 = \\frac{2\\pi}{T}$ (Frecuencia fundamental):** Frecuencia angular base en rad/s.
+- **$\omega_0 = \\frac{{2\\pi}}{{T}}$ (Frecuencia fundamental):** Frecuencia angular base en rad/s.
 - **$N$ (Número de Armónicos):** Cantidad de componentes armónicas sumadas.
             """
         )
@@ -326,7 +335,7 @@ if a0_calc is not None:
         st.subheader("Desarrollo Matemático Analítico (Paso a Paso)")
 
         st.markdown("### 1. Definición Formal")
-        st.latex(r"f(t) = \frac{a_0}{2} + \sum_{n=1}^{\infty} \left[ a_n \cos(n \omega_0 t) + b_n \sin(n \omega_0 t) \right]")
+        st.latex(f"f({var_choice}) = \\frac{{a_0}}{{2}} + \\sum_{{n=1}}^{{\\infty}} \\left[ a_n \\cos(n \\omega_0 {var_choice}) + b_n \\sin(n \\omega_0 {var_choice}) \\right]")
 
         st.markdown("### 2. Parámetros del Intervalo")
         st.write(f"- Periodo $T = b - a =$ **{T:.4f}**")
@@ -339,8 +348,8 @@ if a0_calc is not None:
             an_v = an_list[n_idx - 1]
             bn_v = bn_list[n_idx - 1]
             if abs(an_v) > 1e-4:
-                series_terms.append(f"{an_v:+.4f}\\cos({n_idx}\\omega_0 t)")
+                series_terms.append(f"{an_v:+.4f}\\cos({n_idx}\\omega_0 {var_choice})")
             if abs(bn_v) > 1e-4:
-                series_terms.append(f"{bn_v:+.4f}\\sin({n_idx}\\omega_0 t)")
+                series_terms.append(f"{bn_v:+.4f}\\sin({n_idx}\\omega_0 {var_choice})")
 
-        st.latex(r"S_N(t) \approx " + " ".join(series_terms))
+        st.latex(f"S_N({var_choice}) \\approx " + " ".join(series_terms))
